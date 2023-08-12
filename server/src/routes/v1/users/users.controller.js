@@ -1,5 +1,6 @@
 const {
-  getUserById
+  getUserById,
+  updateUser
 } = require('../../../models/users/users.model')
 
 async function getUserByIdController(req, res) { 
@@ -11,7 +12,17 @@ async function getUserByIdController(req, res) {
     res.status(500).json({ message: error.message })
   }
 }
+async function updateUserController(req, res) { 
+  try {
+    const { userId } = req.params
+    const updatedUser = await updateUser(userId, req.body)
+    res.status(200).json(updatedUser)
+  } catch (error) { 
+    res.status(500).json({ message: error.message })
+  }
+}
 
 module.exports = {
   getUserByIdController,
+  updateUserController,
 }

@@ -10,10 +10,13 @@ const {
 const {
   getUsersFromDolibarr,
   syncOrdersToUsers,
+  syncUsersDatabaseToDolibarr,
+  getAdminUsersFromDolibarr,
 } = require("../models/users/users.model")
 
 async function syncWithDolibarr() { 
   try {
+    await getAdminUsersFromDolibarr()
     await getCompanyFromDolibarr()
     await dolibarrCategoriesSync()
     await getProductsFromDolibarr()
@@ -21,7 +24,8 @@ async function syncWithDolibarr() {
     await getOrdersFromDolibarr()
     await getUsersFromDolibarr()
     await syncOrdersToUsers()
-  } catch (error) { 
+    await syncUsersDatabaseToDolibarr()
+} catch (error) { 
     throw new Error(`Error syncing with Dolibarr: ${error.message}`)
   }
 }

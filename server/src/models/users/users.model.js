@@ -45,6 +45,7 @@ async function getUsersFromDolibarr() {
           city: user.town,
           state: state,
           zipCode: user.zip,
+          phone: user.phone,
         })
         await newUser.save()
       }
@@ -86,10 +87,133 @@ async function getUserById(userId) {
     throw new Error(`Error getting user by id: ${error.message}`)
   }
 }
+async function syncUsersDatabaseToDolibarr() {
+  try {
+    const users = await userDatabase.find({})
+    const existingThirdParties = await axios.get(`${DOLIBARR_URL}/thirdparties?DOLAPIKEY=${DOLAPIKEY}`)
+    for (const user of users) {
+      const { userId, username, email, name, firstName, LastName, address, city, zipCode, role } = user
+      
+      if (role === "admin") {
+        console.log(`Skipping admin user ${username}`)
+        continue
+      }
+
+      const existingThirdParty = existingThirdParties.data.find(thirdParty => thirdParty.id === user.userId)
+      if (existingThirdParty) {
+        console.log(`Skipping existing user ${username}`)
+        continue
+      }
+      const thirdPartyData = {
+        email: email,
+        name: `${firstName} ${lastName}`,
+        email: email,
+        firstName: firstName,
+        lastName: lastName,
+        address: address,
+        town: city,
+        zip: zipCode,
+      }
+      const response = await axios.post(`${DOLIBARR_URL}/thirdparties?DOLAPIKEY=${DOLAPIKEY}`, thirdPartyData, {
+        Headers: {
+          'Content-Type': 'application/json',
+        }
+      })
+      if (response.status === 200) {
+        console.log(`Successfully created user ${username}`)
+      } else { 
+        console.log(`Error Syncing user ${username} to Dolibarr`)
+      }
+    }
+  } catch (error) { 
+    throw new Error(`Error syncing users database to Dolibarr: ${error.message}`)
+  }
+}
+
+async function getAdminUsersFromDolibarr() {
+  try {
+    const dolibarrResponse = await axios.get(`${DOLIBARR_URL}/users?DOLAPIKEY=${DOLAPIKEY}`)
+    const users = dolibarrResponse.data
+    for (const user of users) {
+      if (user.employee === 1) {
+        const existingUser = await userDatabase.findOne({ userId: user.id })
+        if (existingUser) { 
+          continue
+        }
+        const name = `${user.firstname} ${user.lastname}`
+        const state = await getStateByCityAndZip(user.town, user.zip) // Define state using getStateByCityAndZip
+        const newUser = new userDatabase({
+          userId: user.id,
+          username: user.login,
+          password: generateRandomPassword(10),
+          email: user.email,
+          name: name,
+          firstName: user.firstname,
+          lastName: user.lastname,
+          address: user.address,
+          city: user.town,
+          state: state, // Assign state
+          zipCode: user.zip,
+          phone: user.personal_mobile,
+          role: user.admin === '1'
+        })
+        await newUser.save()
+      }
+    }
+  } catch (error) {
+    throw new Error(`Error getting admin users from Dolibarr: ${error.message}`);
+  }
+}
+
+async function updateUser(userId, updatedFields) {
+  try {
+    // Pull the entire user object from the database
+    const user = await userDatabase.findOne({ userId });
+
+    if (!user) {
+      throw new Error(`User with userId ${userId} not found`);
+    }
+
+    // Update the user object with the provided updatedFields
+    Object.assign(user, updatedFields);
+
+    // Map user fields to Dolibarr API fields
+    const mappedUser = {
+      code_client: user.userCode,
+      email: user.email,
+      lastname: user.lastName,
+      firstname: user.firstName,
+      town: user.city,
+      zip: user.zipCode,
+      state: user.state,
+      address: user.address,
+      personal_mobile: user.phone,
+      admin: user.role === 'admin' ? '1' : '0'
+      // ... add other field mappings as needed
+    };
+
+    // Push the update to the Dolibarr API
+    const dolibarrUpdateResponse = await axios.put(
+      `${DOLIBARR_URL}/thirdparties/${user.userCode}?DOLAPIKEY=${DOLAPIKEY}`,
+      mappedUser
+    );
+
+    // Save the updated user object back to the database
+    await user.save();
+
+    // Return the updated user and Dolibarr API response
+    return { user};
+  } catch (error) {
+    throw new Error(`Error updating user: ${error.message}`);
+  }
+}
 
 
 module.exports = {
   getUsersFromDolibarr,
   syncOrdersToUsers,
   getUserById,
+  syncUsersDatabaseToDolibarr,
+  getAdminUsersFromDolibarr,
+  updateUser,
 }
